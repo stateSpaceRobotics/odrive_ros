@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+    <rosparam command="load" file="$(find odrive_ros)/example/params.yaml" />
+    <node name="odrive_node" pkg="odrive_ros" type="odrive_node.py" output="screen" />
+</launch>

@@ -1,0 +1,22 @@
+odrive_node:
+  serial: 1234    # Odrive serial number
+  port:   ttyUSB0 # What port to look on for the Odrive
+  twist:
+    enable:       False  # Enable twist control topic
+    axis_spacing: 10     # Spacing between axes. Use same units as axis0 and axis1
+    
+  axis0:
+    name:                   "name0"   # Name of control topic
+    enable_position_service: True     # Enable position control (both pos and vel is error?)
+    enable_velocity_service: True     # Enable velocity control (service to request opening control?)
+    cpr_conversion_factor:  3.14      # units are cpr/(rad/vel). converts to encoder pulses for Odrive
+    calibrate_on_startup:   True      # instruct Odrive to immediately calibrate
+    index_search:           False     # use pre-loaded encoder info and just do an index search
+
+  axis1:
+    name:                   "name1"   # Name of control topic
+    enable_position_service: True     # Enable position control (both pos and vel is error?)
+    enable_velocity_service: True     # Enable velocity control (service to request opening control?)
+    cpr_conversion_factor:  3.14      # units are cpr/(rad/vel). converts to encoder pulses for Odrive
+    calibrate_on_startup:   True      # instruct Odrive to immediately calibrate
+    index_search:           False     # use pre-loaded encoder info and just do an index search
