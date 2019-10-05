@@ -4,7 +4,7 @@ from geometry_msgs.msg import Twist
 
 from std_srvs.srv import Trigger,TriggerResponse
 import odrive_ros.msg
-from odrive_ros.srv import Float64, Float64Response
+from std_msgs.msg import Header
 
 #import odrive_test_funcs as odrive_funcs
 
@@ -17,10 +17,10 @@ class ODrive_ROS:
         # connect
         self.connect()
 
-        #self.start_topics()
-
         self.create_axis(self.params["axis0"]["name"],self.params["axis0"])
         self.create_axis(self.params["axis1"]["name"],self.params["axis1"])
+        if self.params["twist"]["enable"]:
+            self.sub = rospy.Subscriber(self.name, Twist, self.twist_cb)
 
     def load_params(self):
         """
@@ -41,13 +41,9 @@ class ODrive_ROS:
         if params["calibrate_on_startup"]:
             cb()
         self.axis_dict[axis_name]["calibrate"] = rospy.Service("{}/calibrate".format(axis_name),Trigger,cb)
-        
-        # create control service (pos/vel/none)
-        cb = self.control_srv_factory(axis_name,params["enable_position_control"],params["enable_velocity_control"])
-        name = "position" if params["enable_position_control"] else "velocity" if params["enable_velocity_control"] else "ERROR"
-        self.axis_dict[axis_name]["control"] = rospy.Service("{}/{}".format(axis_name,name),Float64,cb)
 
         # create control action server
+        name = "position" if params["enable_position_control"] else "velocity" if params["enable_velocity_control"] else "ERROR"
         cb = self.control_action_factory(axis_name,params["enable_position_control"],params["enable_velocity_control"])
         self.axis_dict[axis_name]["control"] = actionlib.SimpleActionServer(
             "{}/{}".format(axis_name,name),
@@ -56,6 +52,32 @@ class ODrive_ROS:
             auto_start=False
             )
         self.axis_dict[axis_name]["control"].start()
+
+        # feedback topics
+        self.axis_dict[axis_name]["publisher"] = rospy.Publisher("{}/{}".format(axis_name,name),odrive_ros.msg.Float64Stamped)
+        self.axis_dict[axis_name]["update"] = self.update_factory(axis_name,name)
+
+    def update_factory(self,axis_name,name):
+        if name=="position":
+            def update():
+                """
+                Publish update to topic.
+                """
+                rospy.loginfo("Updating position for {}".format(axis_name))
+                msg = odrive_ros.msg.Float64Stamped(header=Header(),data=0.0)
+                msg.header.stamp = rospy.Time.now()
+                self.axis_dict[axis_name]["publisher"].publish(msg)
+        elif name=="velocity":
+            def update():
+                """
+                Publish update to topic.
+                """
+                rospy.loginfo("Updating velocity for {}".format(axis_name))
+                msg = odrive_ros.msg.Float64Stamped(header=Header(),data=0.0)
+                msg.header.stamp = rospy.Time.now()
+                self.axis_dict[axis_name]["publisher"].publish(msg)
+
+        return update
 
     def control_action_factory(self,axis_name,pos=True,vel=False):
         """
@@ -103,34 +125,7 @@ class ODrive_ROS:
             # set flag to calibrated
             return TriggerResponse(True,"")
         return calibrate_srv
-
-    def control_srv_factory(self,axis_name,pos=True,vel=False):
-        """
-        Creates a control srv callback for the axis.
-        Will be position or velocity based on parameter.
-        """
-        if pos and vel:
-            rospy.logerr("Cannot use both velocity and control on axis: {}! Defaulting to position only".format(axis_name))
-        elif pos:
-            def control_srv(req=None):
-                """
-                Service to set position of axis.
-                """
-                #self.axis_dict[axis_name]["axis"].controller.pos_setpoint = req.setpoint
-                rospy.loginfo("Setting position setpoint for {} to {}".format(axis_name, req.setpoint))
-                return Float64Response(0.0,"")
-        elif vel:
-            def control_srv(req):
-                """
-                Service to set velocity of axis.
-                """
-                #self.axis_dict[axis_name]["axis"].controller.vel_setpoint = req.setpoint
-                rospy.loginfo("Setting velocity setpoint for {} to {}".format(axis_name, req.setpoint))
-                return Float64Response(0.0,"")
-        return control_srv
                 
-
-
     def connect(self):
         """
         Connect to the ODrive.
@@ -149,11 +144,6 @@ class ODrive_ROS:
 
         return
 
-    def start_topics(self):
-        if self.twist_en:
-            self.sub = rospy.Publisher(self.name, Twist, self.twist_cb)
-        return
-
     def twist_cb(self,msg):
         """
         Process twist messages.
@@ -161,3 +151,10 @@ class ODrive_ROS:
         """
         rospy.loginfo("Received Twist message")
         return
+
+    def update(self):
+        """
+        Update loop for published status messages.
+        """
+        for axis_name in self.axis_dict.keys():
+            self.axis_dict[axis_name]["update"]()

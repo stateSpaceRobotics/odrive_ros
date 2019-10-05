@@ -5,4 +5,7 @@ import pprint
 if __name__=="__main__":
     rospy.init_node("odrive_node")
     odrive_node = ODrive_ROS("odrive_node")
-    rospy.spin()
+    rate = rospy.Rate(1)
+    while not rospy.is_shutdown():
+        odrive_node.update()
+        rate.sleep()

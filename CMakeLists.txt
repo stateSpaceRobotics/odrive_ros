@@ -51,18 +51,18 @@ catkin_python_setup()
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
+add_message_files(
+  FILES
+  Float64Stamped.msg
 #   Message2.msg
-# )
+)
 
 ## Generate services in the 'srv' folder
-add_service_files(
-  FILES
-  Float64.srv
+#add_service_files(
+#  FILES
+#  Float64.srv
 #   Service2.srv
-)
+#)
 
 ## Generate actions in the 'action' folder
 add_action_files(

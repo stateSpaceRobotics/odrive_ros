@@ -3,4 +3,5 @@ float64 tolerance=0.1
 ---
 float64 final
 ---
-float64 current
+float64 current_pos
+float64 current_vel
