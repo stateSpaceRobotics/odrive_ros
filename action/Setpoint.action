@@ -1,0 +1,6 @@
+float64 setpoint
+float64 tolerance=0.1
+---
+float64 final
+---
+float64 current

@@ -1,8 +1,9 @@
 import rospy
+import actionlib
 from geometry_msgs.msg import Twist
 
 from std_srvs.srv import Trigger,TriggerResponse
-
+import odrive_ros.msg
 from odrive_ros.srv import Float64, Float64Response
 
 #import odrive_test_funcs as odrive_funcs
@@ -11,20 +12,15 @@ class ODrive_Interface:
 
     def __init__(self,rosparam_name):
         self.name = rosparam_name
-        self.calibrated0 = False
-        self.calibrated1 = False
         # load parameters
         self.load_params()
         # connect
         self.connect()
-        # calibrate
-        if self.calibrate_on_startup0:
-            self.calibrate0_srv()
-        if self.calibrate_on_startup1:
-            self.calibrate1_srv()
 
-        self.start_topics()
-        self.start_services()
+        #self.start_topics()
+
+        self.create_axis(self.params["axis0"]["name"],self.params["axis0"])
+        self.create_axis(self.params["axis1"]["name"],self.params["axis1"])
 
     def load_params(self):
         """
@@ -34,80 +30,124 @@ class ODrive_Interface:
             rospy.logerr("Parameters for ODrive: {} does not exist!".format(self.name))
             exit()
         
-        params = rospy.get_param(self.name)
-        # Id and serial values
-        self.serial_id = params["serial"]
-        #self.serial_port = params["port"]
+        self.params = rospy.get_param(self.name)
 
-        # Twist topic parameters
-        self.twist_en = params["twist"]["enable"]
-        self.twist_spacing = params["twist"]["axis_spacing"]
+    def create_axis(self,axis_name,params):
+        """
+        Assembles axis's components based on params
+        """
+        # create calibrate service or just run calibration
+        cb = self.calibrate_srv_factory(axis_name,params["index_search"])
+        if params["calibrate_on_startup"]:
+            cb()
+        self.axis_dict[axis_name]["calibrate"] = rospy.Service("{}/calibrate".format(axis_name),Trigger,cb)
+        
+        # create control service (pos/vel/none)
+        cb = self.control_srv_factory(axis_name,params["enable_position_control"],params["enable_velocity_control"])
+        name = "position" if params["enable_position_control"] else "velocity" if params["enable_velocity_control"] else "ERROR"
+        self.axis_dict[axis_name]["control"] = rospy.Service("{}/{}".format(axis_name,name),Float64,cb)
 
-        # Axis 0
-        axis = params["axis0"]
-        self.name0 = axis["name"]
-        self.en_pos_serv0 = axis["enable_position_service"]
-        self.en_vel_serv0 = axis["enable_velocity_service"]
-        self.cpr_gain0 = axis["cpr_conversion_factor"]
-        self.calibrate_on_startup0 = axis["calibrate_on_startup"]
-        self.index_search0 = axis["index_search"]
-        # Axis 1
-        axis = params["axis1"]
-        self.name1 = axis["name"]
-        self.en_pos_serv1 = axis["enable_position_service"]
-        self.en_vel_serv1 = axis["enable_velocity_service"]
-        self.cpr_gain1 = axis["cpr_conversion_factor"]
-        self.calibrate_on_startup1 = axis["calibrate_on_startup"]
-        self.index_search1 = axis["index_search"]
+        # create control action server
+        cb = self.control_action_factory(axis_name,params["enable_position_control"],params["enable_velocity_control"])
+        self.axis_dict[axis_name]["control"] = actionlib.SimpleActionServer(
+            "{}/{}".format(axis_name,name),
+            odrive_ros.msg.SetpointAction,
+            execute_cb=cb,
+            auto_start=False
+            )
+        self.axis_dict[axis_name]["control"].start()
+
+    def control_action_factory(self,axis_name,pos=True,vel=False):
+        """
+        Creates a control action callback for the axis.
+        Will be position or velocity based on parameter.
+        """
+        if pos and vel:
+            rospy.logerr("Cannot use both velocity and control on axis: {}! Defaulting to position only".format(axis_name))
+        elif pos:
+            def control_action(goal):
+                """
+                Action to set position of axis.
+                """
+                #self.axis_dict[axis_name]["axis"].controller.pos_setpoint = req.setpoint
+                rospy.loginfo("Setting position setpoint for {} to {}".format(axis_name, goal.setpoint))
+                for i in range(5):
+                    # publish feedback
+                    self.axis_dict[axis_name]["control"].publish_feedback(odrive_ros.msg.SetpointFeedback(i)) 
+                # if success
+                self.axis_dict[axis_name]["control"].set_succeeded(odrive_ros.msg.SetpointResult(0.0))
+                return
+        elif vel:
+            def control_action(goal):
+                """
+                Service to set velocity of axis.
+                """
+                #self.axis_dict[axis_name]["axis"].controller.vel_setpoint = req.setpoint
+                rospy.loginfo("Setting velocity setpoint for {} to {}".format(axis_name, goal.setpoint))
+                for i in range(5):
+                    # publish feedback
+                    self.axis_dict[axis_name]["control"].publish_feedback(odrive_ros.msg.SetpointFeedback(i))              
+                # if success
+                self.axis_dict[axis_name]["control"].set_succeeded(odrive_ros.msg.SetpointResult(0.0))
+                return
+        return control_action
+
+    def calibrate_srv_factory(self,axis_name,index_search=False):
+        """
+        Creates a calibrate srv callback for the axis.
+        """
+        def calibrate_srv(req=None):
+            #self.axis_dict[axis_name]["axis"].requested_state = AXIS_STATE_ENCODER_INDEX_SEARCH if index_search else AXIS_STATE_FULL_CALIBRATION_SEQUENCE
+            rospy.loginfo("Calibrating {}".format(axis_name))
+            # wait until calibrated
+            # set flag to calibrated
+            return TriggerResponse(True,"")
+        return calibrate_srv
+
+    def control_srv_factory(self,axis_name,pos=True,vel=False):
+        """
+        Creates a control srv callback for the axis.
+        Will be position or velocity based on parameter.
+        """
+        if pos and vel:
+            rospy.logerr("Cannot use both velocity and control on axis: {}! Defaulting to position only".format(axis_name))
+        elif pos:
+            def control_srv(req=None):
+                """
+                Service to set position of axis.
+                """
+                #self.axis_dict[axis_name]["axis"].controller.pos_setpoint = req.setpoint
+                rospy.loginfo("Setting position setpoint for {} to {}".format(axis_name, req.setpoint))
+                return Float64Response(0.0,"")
+        elif vel:
+            def control_srv(req):
+                """
+                Service to set velocity of axis.
+                """
+                #self.axis_dict[axis_name]["axis"].controller.vel_setpoint = req.setpoint
+                rospy.loginfo("Setting velocity setpoint for {} to {}".format(axis_name, req.setpoint))
+                return Float64Response(0.0,"")
+        return control_srv
+                
+
 
     def connect(self):
         """
         Connect to the ODrive.
         """
-        self.ODrive = None
+        class empty(object):
+            pass
+        self.ODrive = empty()
+        self.ODrive.axis0 = empty()
+        self.ODrive.axis1 = empty()
+
+        self.axis_dict = {
+            self.params["axis0"]["name"] : {"axis":self.ODrive.axis0},
+            self.params["axis1"]["name"] : {"axis":self.ODrive.axis1}
+        }
+
+
         return
-
-    def calibrate0_srv(self,req=None):
-        """
-        Calibrate axis0.
-        """
-        rospy.loginfo("Calibrating {}".format(self.name0))
-        return TriggerResponse(True,"")
-
-    def calibrate1_srv(self,req=None):
-        """
-        Calibrate axis1.
-        """
-        rospy.loginfo("Calibrating {}".format(self.name1))
-        return TriggerResponse(True,"")
-
-    def pos0_srv(self,req):
-        """
-        Service to set position of axis 0.
-        """
-        rospy.loginfo("Setting position setpoint for {} to {}".format(self.name0, req.setpoint))
-        return Float64Response(0.0,"")
-
-    def pos1_srv(self,req):
-        """
-        Service to set position of axis 1.
-        """
-        rospy.loginfo("Setting position setpoint for {} to {}".format(self.name1, req.setpoint))
-        return Float64Response(0.0,"")
-
-    def vel0_srv(self,req):
-        """
-        Service to set velocity of axis 0.
-        """
-        rospy.loginfo("Setting velocity setpoint for {} to {}".format(self.name0, req.setpoint))
-        return Float64Response(0.0,"")
-
-    def vel1_srv(self,req):
-        """
-        Service to set velocity of axis 1.
-        """
-        rospy.loginfo("Setting velocity setpoint for {} to {}".format(self.name1, req.setpoint))
-        return Float64Response(0.0,"")
 
     def start_topics(self):
         if self.twist_en:
@@ -121,24 +161,3 @@ class ODrive_Interface:
         """
         rospy.loginfo("Received Twist message")
         return
-
-    def start_services(self):
-        """
-        Start up services for both axes.
-        """
-        if not self.calibrated0:
-            self.calibrate_srv0 = rospy.Service("{}_calibrate".format(self.name0),Trigger,self.calibrate0_srv)
-        if not self.calibrated1:
-            self.calibrate_srv1 = rospy.Service("{}_calibrate".format(self.name1),Trigger,self.calibrate1_srv)
-
-        # Position
-        if self.en_pos_serv0:
-            self.pos0 = rospy.Service("{}_set_position".format(self.name0),Float64,self.pos0_srv)
-        if self.en_pos_serv1:
-            self.pos1 = rospy.Service("{}_set_position".format(self.name1),Float64,self.pos1_srv)
-
-        # Velocity
-        if self.en_vel_serv0:
-            self.vel0 = rospy.Service("{}_set_velocity".format(self.name0),Float64,self.vel0_srv)
-        if self.en_vel_serv1:
-            self.vel1 = rospy.Service("{}_set_velocity".format(self.name1),Float64,self.vel1_srv)
