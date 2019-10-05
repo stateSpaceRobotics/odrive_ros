@@ -8,7 +8,7 @@ from odrive_ros.srv import Float64, Float64Response
 
 #import odrive_test_funcs as odrive_funcs
 
-class ODrive_Interface:
+class ODrive_ROS:
 
     def __init__(self,rosparam_name):
         self.name = rosparam_name
