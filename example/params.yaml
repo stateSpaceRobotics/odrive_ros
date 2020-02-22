@@ -7,19 +7,17 @@ odrive_node:
     left:         0         # Which axis to use as left (0/1)
     
   axis0:
-    name:                   "name0"   # Name of control topic
-    position_control:       False      # Enable position/velocity control (T/F)
-    cpr:                    8192.0    # cpr # units are cpr/unit (m, rad, etc.). Converts to encoder pulses for Odrive
-    tolerance:              0.1       # Tolerance on action server goals
-    calibrate_on_startup:   True      # instruct Odrive to immediately calibrate without triggering
-    index_search:           False     # use pre-loaded encoder info and just do an index search
-    home:                   .NAN      # setpoint to use on timeout or E-Stop. .NAN means hold current setting
+    name:                   "name0"    # Name of control topic
+    control_mode:           "velocity" # Enable position/velocity control (T/F)
+    cpr:                    8192.0     # cpr # units are cpr/unit (m, rad, etc.). Converts to encoder pulses for Odrive
+    calibrate_on_startup:   True       # instruct Odrive to immediately calibrate without triggering
+    index_search:           False      # use pre-loaded encoder info and just do an index search
+    home:                   .NAN       # setpoint to use on timeout or E-Stop. .NAN means hold current setting
 
   axis1:
-    name:                   "name1"   # Name of control topic
-    position_control:       True      # Enable position/velocity control (T/F)
-    cpr:                    3.14      # units are cpr/unit (m, rad, etc.). Converts to encoder pulses for Odrive
-    tolerance:              1.0       # Tolerance on action server goals
-    calibrate_on_startup:   True      # instruct Odrive to immediately calibrate without triggering
-    index_search:           False     # use pre-loaded encoder info and just do an index search
-    home:                   .NAN      # setpoint to use on timeout or E-Stop. .NAN means hold current setting
+    name:                   "name1"    # Name of control topic
+    control_mode:           "position" # Enable position/velocity control (T/F)
+    cpr:                    8192.0       # units are cpr/unit (m, rad, etc.). Converts to encoder pulses for Odrive
+    calibrate_on_startup:   True       # instruct Odrive to immediately calibrate without triggering
+    index_search:           False      # use pre-loaded encoder info and just do an index search
+    home:                   .NAN       # setpoint to use on timeout or E-Stop. .NAN means hold current setting
