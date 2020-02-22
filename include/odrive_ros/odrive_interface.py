@@ -13,6 +13,84 @@ from std_msgs.msg import Header
 import odrive_ros.msg
 
 class ODrive_ROS:
+    class Axis_Action_Server:
+        def __init__(self,axis, name, ctrl_type, cpr):
+            self._axis = axis
+            self._name = name
+            self._type = ctrl_type
+            self._cpr = cpr
+            if self._type == "position":
+                cb = self.pos_cb
+            elif self._type == "velocity":
+                cb = self.vel_cb
+            
+            self._as = actionlib.SimpleActionServer(
+                "{}/{}".format(axis_dict["name"],axis_dict["type"]), # TODO Fix
+                odrive_ros.msg.SetpointAction,
+                execute_cb=cb,
+                auto_start=False
+                )
+            self._as.start()
+
+        def pos_cb(self, goal):
+            self._axis.controller.pos_setpoint = goal.setpoint * self._cpr
+            rospy.logdebug("Received position goal on {}: {}".format(self._name,self._axis.controller.pos_setpoint))
+            rate = rospy.Rate(25)
+
+            # supply feedback until to setpoint
+            while abs(goal.setpoint-self._axis.encoder.pos_estimate/self._cpr) > goal.tolerance:
+                # preempt check; if preempted exit
+                if self._as.is_preempt_requested():
+                    rospy.loginfo("{}/{} has been preempted!".format(self._name,self._type))
+                    # motor should stop where it is
+                    self._axis.controller.pos_setpoint = self._axis.encoder.pos_estimate
+                    self._as.set_preempted()
+                    return
+
+                self._as.publish_feedback(
+                    odrive_ros.msg.SetpointActionFeedback(
+                        current_pos=self._axis.encoder.pos_estimate*self._cpr,
+                        current_vel=self._axis.encoder.vel_estimate*self._cpr
+                    )
+                )
+                rate.sleep()
+            # success hit
+            self._as.set_succeeded(
+                odrive_ros.msg.SetpointActionResult(
+                    final=self._axis.encoder.pos_estimate*self._cpr
+                )
+            )
+            return
+
+        def vel_cb(self, goal):
+            self._axis.controller.vel_setpoint = goal.setpoint * self._cpr
+            rospy.logdebug("Received velocity goal on {}: {}".format(self._name,self._axis.controller.vel_setpoint))
+            rate = rospy.Rate(25)
+
+            # supply feedback until to setpoint
+            while abs(goal.setpoint-self._axis.encoder.vel_estimate/self._cpr) > goal.tolerance:
+                # preempt check; if preempted exit
+                if self._as.is_preempt_requested():
+                    rospy.loginfo("{}/{} has been preempted!".format(self._name,self._type))
+                    # motor should stop where it is
+                    self._axis.controller.vel_setpoint = self._axis.encoder.vel_estimate
+                    self._as.set_preempted()
+                    return
+
+                self._as.publish_feedback(
+                    odrive_ros.msg.SetpointActionFeedback(
+                        current_pos=self._axis.encoder.pos_estimate*self._cpr,
+                        current_vel=self._axis.encoder.vel_estimate*self._cpr
+                    )
+                )
+                rate.sleep()
+            # success hit
+            self._as.set_succeeded(
+                odrive_ros.msg.SetpointActionResult(
+                    final=self._axis.encoder.vel_estimate*self._cpr
+                )
+            )
+            return
 
     def __init__(self,rosparam_name):
         self.name = rosparam_name
@@ -69,59 +147,12 @@ class ODrive_ROS:
         
         # create action server if no twist
         if not self.params["twist"]["enable"]:
-            def control_action(goal):
-                """
-                Action to set position of axis.
-                """
-                rospy.logdebug("Setting {} setpoint for {} to {}".format(name,axis_name, goal.setpoint))
-                if name == "position":
-                    self.axis_dict[axis_name]["axis"].controller.pos_setpoint = goal.setpoint * self.axis_dict[axis_name]["params"]["cpr"]
-                    sensor_val = self.axis_dict[axis_name]["axis"].encoder.pos_estimate
-                    rospy.logdebug("{}".format(self.axis_dict[axis_name]["axis"].controller.pos_setpoint))
-                elif name == "velocity":
-                    self.axis_dict[axis_name]["axis"].controller.vel_setpoint = goal.setpoint * self.axis_dict[axis_name]["params"]["cpr"]
-                    sensor_val = self.axis_dict[axis_name]["axis"].encoder.vel_estimate
-                    rospy.logdebug("{}".format(self.axis_dict[axis_name]["axis"].controller.vel_setpoint))
-
-                
-                
-                then = rospy.Time.now()
-                # TODO: Parameterize threshold margin
-                while abs(goal.setpoint* self.axis_dict[axis_name]["params"]["cpr"]-sensor_val) > self.axis_dict[axis_name]["params"]["tolerance"]* self.axis_dict[axis_name]["params"]["cpr"]:
-                    if (rospy.Time.now()-then) > rospy.Duration(nsecs=1000000000):
-                        then = rospy.Time.now()
-                        # publish feedback
-                        self.axis_dict[axis_name]["control"].publish_feedback(
-                            odrive_ros.msg.SetpointFeedback(
-                                current_pos=self.axis_dict[axis_name]["axis"].encoder.pos_estimate,
-                                current_vel=self.axis_dict[axis_name]["axis"].encoder.vel_estimate
-                                )
-                            )
-                        if name == "position":
-                            sensor_val = self.axis_dict[axis_name]["axis"].encoder.pos_estimate
-                        elif name == "velocity":
-                            sensor_val = self.axis_dict[axis_name]["axis"].encoder.vel_estimate
-                            rospy.logdebug("VelSet {}".format(self.axis_dict[axis_name]["axis"].controller.vel_setpoint))
-                            rospy.logdebug("VelVal {}".format(sensor_val))
-                # if success
-                if name == "position":
-                    sensor_val = self.axis_dict[axis_name]["axis"].encoder.pos_estimate
-                elif name == "velocity":
-                    sensor_val = self.axis_dict[axis_name]["axis"].encoder.vel_estimate
-                self.axis_dict[axis_name]["control"].set_succeeded(
-                    odrive_ros.msg.SetpointResult(
-                        sensor_val
-                        )
-                    )
-                return
-            
-            self.axis_dict[axis_name]["control"] = actionlib.SimpleActionServer(
-                "{}/{}".format(axis_name,name),
-                odrive_ros.msg.SetpointAction,
-                execute_cb=control_action,
-                auto_start=False
-                )
-            self.axis_dict[axis_name]["control"].start()
+            self.axis_dict[axis_name]["action_server"] = self.Axis_Action_Server(
+                axis=self.axis_dict[axis_name]["axis"],
+                name=axis_name,
+                ctrl_type=name,
+                cpr=self.axis_dict[axis_name]["cpr"]
+            )
         # create feedback topics
         self.axis_dict[axis_name]["publisher"] = rospy.Publisher("{}/{}".format(axis_name,name),odrive_ros.msg.Float64Stamped, queue_size=1)
         self.axis_dict[axis_name]["amperage"] = rospy.Publisher("{}/{}".format(axis_name,"amperage"),odrive_ros.msg.Float64Stamped, queue_size=1)
