@@ -1,5 +1,5 @@
 float64 setpoint
-float64 tolerance=0.1
+float64 tolerance
 ---
 float64 final
 ---
