@@ -246,3 +246,7 @@ class ODrive_ROS:
         """
         self.params["axis0"]["update"]()
         self.params["axis1"]["update"]()
+        # check for twist timeout
+        if self.params["twist"]["enable"] and (rospy.Time.now()-self.last_msg_time)<rospy.Duration(0.5):
+            self.ODrive.axis0.controller.vel_setpoint = 0
+            self.ODrive.axis1.controller.vel_setpoint = 0
