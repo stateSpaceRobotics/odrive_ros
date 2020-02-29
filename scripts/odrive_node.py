@@ -7,5 +7,9 @@ if __name__=="__main__":
     odrive_node = ODrive_ROS("odrive_node")
     rate = rospy.Rate(1)
     while not rospy.is_shutdown():
-        odrive_node.update()
-        rate.sleep()
+        try:
+            odrive_node.update()
+            rate.sleep()
+        except KeyboardInterrupt:
+            break
+    odrive_node.close()

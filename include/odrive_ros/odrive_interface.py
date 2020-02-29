@@ -3,7 +3,8 @@ import time
 
 import odrive
 from odrive.enums import *
-
+# TODO: use weakref to fix circular references
+# import weakref
 import rospy
 import actionlib
 from geometry_msgs.msg import Twist
@@ -262,7 +263,11 @@ class ODrive_ROS:
             self.ODrive.axis0.controller.vel_setpoint = 0
             self.ODrive.axis1.controller.vel_setpoint = 0
             
+    def close(self):
+        self.__del__()
+            
     def __del__(self):
+        rospy.logerr("Shutting down ODrive!")
         self.ODrive.axis0.controller.vel_setpoint = 0
         self.ODrive.axis1.controller.vel_setpoint = 0
         self.ODrive.axis0.controller.pos_setpoint = self.ODrive.axis0.encoder.pos_estimate
