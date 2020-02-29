@@ -2,22 +2,22 @@ odrive_node:
   serial: "336331483536"    # Odrive serial number
   port:   ttyUSB0           # What port to look on for the Odrive
   twist:
-    enable:       False     # Enable twist control topic
-    axis_spacing: 10        # Spacing between axes. units should be meters
+    enable:       True     # Enable twist control topic
+    axis_spacing: 0.545        # Spacing between axes. units should be meters
     left:         0         # Which axis to use as left (0/1)
     
   axis0:
     name:                   "name0"    # Name of control topic
     control_mode:           "velocity" # Enable position/velocity control (T/F)
-    cpr:                    8192.0     # cpr # units are cpr/unit (m, rad, etc.). Converts to encoder pulses for Odrive
+    cpr:                    -106.1     # units to convert to rev/s of motor (m, rad, etc.). Odrive converts to cpr
     calibrate_on_startup:   True       # instruct Odrive to immediately calibrate without triggering
     index_search:           False      # use pre-loaded encoder info and just do an index search
     home:                   .NAN       # setpoint to use on timeout or E-Stop. .NAN means hold current setting
 
   axis1:
     name:                   "name1"    # Name of control topic
-    control_mode:           "position" # Enable position/velocity control (T/F)
-    cpr:                    8192.0       # units are cpr/unit (m, rad, etc.). Converts to encoder pulses for Odrive
+    control_mode:           "velocity" # Enable position/velocity control (T/F)
+    cpr:                    106.1      # units to convert to rev/s of motor (m, rad, etc.). Odrive converts to cpr
     calibrate_on_startup:   True       # instruct Odrive to immediately calibrate without triggering
     index_search:           False      # use pre-loaded encoder info and just do an index search
     home:                   .NAN       # setpoint to use on timeout or E-Stop. .NAN means hold current setting

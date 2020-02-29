@@ -11,14 +11,15 @@ from std_srvs.srv import Trigger,TriggerResponse
 from std_msgs.msg import Header
 import odrive_ros
 import odrive_ros.msg
-
+# TODO: Fix CPR
 class ODrive_ROS:
     class Axis_Action_Server:
-        def __init__(self,axis, name, ctrl_type, cpr):
+        def __init__(self,axis, name, ctrl_type, to_cpr):
             self._axis = axis
             self._name = name
             self._type = ctrl_type
-            self._cpr = cpr
+            self._to_cpr = to_cpr
+            self._cpr = axis.encoder.config.cpr
             if self._type == "position":
                 cb = self.pos_cb
             elif self._type == "velocity":
@@ -33,12 +34,12 @@ class ODrive_ROS:
             self._as.start()
 
         def pos_cb(self, goal):
-            self._axis.controller.pos_setpoint = goal.setpoint * self._cpr
+            self._axis.controller.pos_setpoint = goal.setpoint * self._to_cpr * self._cpr
             rospy.logdebug("Received position goal on {}: {}".format(self._name,self._axis.controller.pos_setpoint))
             rate = rospy.Rate(2)
 
             # supply feedback until to setpoint
-            while abs(goal.setpoint-self._axis.encoder.pos_estimate/self._cpr) > goal.tolerance and not rospy.is_shutdown():
+            while abs(goal.setpoint-self._axis.encoder.pos_estimate/self._to_cpr/self._cpr) > goal.tolerance and not rospy.is_shutdown():
                 # preempt check; if preempted exit
                 if self._as.is_preempt_requested():
                     rospy.loginfo("{}/{} has been preempted!".format(self._name,self._type))
@@ -46,33 +47,33 @@ class ODrive_ROS:
                     self._axis.controller.pos_setpoint = self._axis.encoder.pos_estimate
                     self._as.set_preempted(
                         result=odrive_ros.msg.SetpointResult(
-                            final=self._axis.encoder.pos_estimate/self._cpr
+                            final=self._axis.encoder.pos_estimate/self._to_cpr/self._cpr
                         )
                     )
                     return
 
                 self._as.publish_feedback(
                     odrive_ros.msg.SetpointFeedback(
-                        current_pos=self._axis.encoder.pos_estimate/self._cpr,
-                        current_vel=self._axis.encoder.vel_estimate/self._cpr
+                        current_pos=self._axis.encoder.pos_estimate/self._to_cpr/self._cpr,
+                        current_vel=self._axis.encoder.vel_estimate/self._to_cpr/self._cpr
                     )
                 )
                 rate.sleep()
             # success hit
             self._as.set_succeeded(
                 odrive_ros.msg.SetpointResult(
-                    final=self._axis.encoder.pos_estimate/self._cpr
+                    final=self._axis.encoder.pos_estimate/self._to_cpr/self._cpr
                 )
             )
             return
 
         def vel_cb(self, goal):
-            self._axis.controller.vel_setpoint = goal.setpoint * self._cpr
+            self._axis.controller.vel_setpoint = goal.setpoint * self._to_cpr * self._cpr
             rospy.logdebug("Received velocity goal on {}: {}".format(self._name,self._axis.controller.vel_setpoint))
             rate = rospy.Rate(2)
-            rospy.logdebug("goal: {}".format(goal.setpoint * self._cpr))
+            rospy.logdebug("goal: {}".format(goal.setpoint * self._to_cpr * self._cpr))
             # supply feedback until to setpoint
-            while abs(goal.setpoint-self._axis.encoder.vel_estimate/self._cpr) > goal.tolerance and not rospy.is_shutdown():
+            while abs(goal.setpoint-self._axis.encoder.vel_estimate/self._to_cpr/self._cpr) > goal.tolerance and not rospy.is_shutdown():
                 rospy.logdebug(self._axis.encoder.vel_estimate)
                 # preempt check; if preempted exit
                 if self._as.is_preempt_requested():
@@ -81,22 +82,22 @@ class ODrive_ROS:
                     self._axis.controller.vel_setpoint = self._axis.encoder.vel_estimate
                     self._as.set_preempted(
                         result=odrive_ros.msg.SetpointResult(
-                            final=self._axis.encoder.vel_estimate/self._cpr
+                            final=self._axis.encoder.vel_estimate/self._to_cpr/self._cpr
                         )
                     )
                     return
 
                 self._as.publish_feedback(
                     odrive_ros.msg.SetpointFeedback(
-                        current_pos=self._axis.encoder.pos_estimate/self._cpr,
-                        current_vel=self._axis.encoder.vel_estimate/self._cpr
+                        current_pos=self._axis.encoder.pos_estimate/self._to_cpr/self._cpr,
+                        current_vel=self._axis.encoder.vel_estimate/self._to_cpr/self._cpr
                     )
                 )
                 rate.sleep()
             # success hit
             self._as.set_succeeded(
                 odrive_ros.msg.SetpointResult(
-                    final=self._axis.encoder.vel_estimate/self._cpr
+                    final=self._axis.encoder.vel_estimate/self._to_cpr/self._cpr
                 )
             )
             return
@@ -119,7 +120,8 @@ class ODrive_ROS:
             self.create_axis(self.params["axis0"])
             self.create_axis(self.params["axis1"])
             if self.params["twist"]["enable"]:
-                self.sub = rospy.Subscriber(self.name, Twist, self.twist_cb)
+                self.last_msg_time = rospy.Time.now()
+                self.sub = rospy.Subscriber("{}/cmd_vel".format(self.name), Twist, self.twist_cb)
 
     def load_params(self):
         """
@@ -158,7 +160,7 @@ class ODrive_ROS:
             axis_params["axis"].controller.pos_setpoint = axis_params["axis"].encoder.pos_estimate
             axis_params["axis"].controller.vel_setpoint = 0
             axis_params["axis"].requested_state = AXIS_STATE_CLOSED_LOOP_CONTROL
-            axis_params["axis"].controller.config.vel_limit = axis_params["cpr"]*100.0
+            axis_params["axis"].controller.config.vel_limit = 80.0*axis_params["axis"].encoder.config.cpr
             axis_params["axis"].controller.config.control_mode = CTRL_MODE_POSITION_CONTROL if ctrl_type == "position" else CTRL_MODE_VELOCITY_CONTROL
             rospy.logdebug("Control Gains: {}, {}, {}".format(
                 axis_params["axis"].controller.config.pos_gain,
@@ -177,7 +179,7 @@ class ODrive_ROS:
                 axis=axis_params["axis"],
                 name=name,
                 ctrl_type=ctrl_type,
-                cpr=axis_params["cpr"]
+                to_cpr=axis_params["cpr"]
             )
         # create feedback topics
         axis_params["publisher"] = rospy.Publisher("{}/{}".format(name,ctrl_type),odrive_ros.msg.Float64Stamped, queue_size=1)
@@ -224,20 +226,28 @@ class ODrive_ROS:
         self.twist_spacing handles diff axis spacing
         """
         rospy.logdebug("Received Twist message")
-        # TODO implement timeout
         self.last_msg_time = rospy.Time.now()
         lin = msg.linear.x
         ang = msg.angular.z
         # units are m/s
-        left =  (lin - ang * self.params["twist"]["axis_spacing"] / 2.0)
-        right = (lin + ang * self.params["twist"]["axis_spacing"] / 2.0)
-        # convert m/s to cpr/s and send to ODrive
+        left =  (lin + ang * self.params["twist"]["axis_spacing"] / 2.0)
+        right = (lin - ang * self.params["twist"]["axis_spacing"] / 2.0)
+        rospy.logdebug("L:{}\tR:{}".format(left,right))
+        # convert units/s to cpr/s and send to ODrive
         if self.params["twist"]["left"]:
-            self.ODrive.axis0.controller.vel_setpoint = left * self.params["axis0"]["cpr"]
-            self.ODrive.axis1.controller.vel_setpoint = right * self.params["axis1"]["cpr"]
+            rospy.logdebug("L:{}\tR:{}".format(
+                left * self.params["axis0"]["cpr"] * self.ODrive.axis0.encoder.config.cpr,
+                right * self.params["axis1"]["cpr"] * self.ODrive.axis1.encoder.config.cpr
+            ))
+            self.ODrive.axis0.controller.vel_setpoint = left * self.params["axis0"]["cpr"] * self.ODrive.axis0.encoder.config.cpr
+            self.ODrive.axis1.controller.vel_setpoint = right * self.params["axis1"]["cpr"] * self.ODrive.axis1.encoder.config.cpr
         else:
-            self.ODrive.axis0.controller.vel_setpoint = right * self.params["axis0"]["cpr"]
-            self.ODrive.axis1.controller.vel_setpoint = left * self.params["axis1"]["cpr"]
+            rospy.logdebug("L:{}\tR:{}".format(
+                left * self.params["axis1"]["cpr"] * self.ODrive.axis1.encoder.config.cpr,
+                right * self.params["axis0"]["cpr"] * self.ODrive.axis0.encoder.config.cpr
+            ))
+            self.ODrive.axis0.controller.vel_setpoint = right * self.params["axis0"]["cpr"] * self.ODrive.axis0.encoder.config.cpr
+            self.ODrive.axis1.controller.vel_setpoint = left * self.params["axis1"]["cpr"] * self.ODrive.axis1.encoder.config.cpr
         return
 
     def update(self):
@@ -247,6 +257,13 @@ class ODrive_ROS:
         self.params["axis0"]["update"]()
         self.params["axis1"]["update"]()
         # check for twist timeout
-        if self.params["twist"]["enable"] and (rospy.Time.now()-self.last_msg_time)<rospy.Duration(0.5):
+        if self.params["twist"]["enable"] and (rospy.Time.now()-self.last_msg_time)>rospy.Duration(0.5):
+            rospy.logdebug("Stopping due to timeout!")
             self.ODrive.axis0.controller.vel_setpoint = 0
             self.ODrive.axis1.controller.vel_setpoint = 0
+            
+    def __del__(self):
+        self.ODrive.axis0.controller.vel_setpoint = 0
+        self.ODrive.axis1.controller.vel_setpoint = 0
+        self.ODrive.axis0.controller.pos_setpoint = self.ODrive.axis0.encoder.pos_estimate
+        self.ODrive.axis1.controller.pos_setpoint = self.ODrive.axis1.encoder.pos_estimate
